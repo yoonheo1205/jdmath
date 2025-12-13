@@ -17,7 +17,7 @@ export interface AuthResponse {
 }
 
 /**
- * 회원가입 - 이메일로 OTP 전송
+ * 회원가입 - Magic Link 이메일 전송
  * @param email 사용자 이메일
  * @param password 사용자 비밀번호
  * @param metadata 추가 메타데이터 (이름, 학번, 학년, 아이디)
@@ -38,11 +38,13 @@ export const signUp = async (
   try {
     console.log('[authService.signUp] Starting signup...', { email, metadata });
 
+    // CRITICAL: emailRedirectTo must be set to window.location.origin
+    // This ensures the email link redirects back to the current website
     const { data, error } = await supabase.auth.signUp({
       email: email.trim(),
       password: password.trim(),
       options: {
-        emailRedirectTo: `${window.location.origin}`,
+        emailRedirectTo: window.location.origin,
         data: metadata || {},
       }
     });
@@ -52,55 +54,13 @@ export const signUp = async (
       return { data: null, error };
     }
 
-    console.log('[authService.signUp] Signup initiated successfully');
+    console.log('[authService.signUp] Signup initiated successfully, email sent');
     return { data, error: null };
   } catch (error: any) {
     console.error('[authService.signUp] Unexpected error:', error);
     return {
       data: null,
       error: { message: error.message || '회원가입 중 오류가 발생했습니다.' }
-    };
-  }
-};
-
-/**
- * OTP 검증 (회원가입용)
- * @param email 사용자 이메일
- * @param token 6자리 OTP 코드
- * @returns { data, error }
- */
-export const verifyOtp = async (
-  email: string,
-  token: string
-): Promise<AuthResponse> => {
-  if (!isSupabaseConfigured()) {
-    return {
-      data: null,
-      error: { message: 'Supabase가 구성되지 않았습니다.' }
-    };
-  }
-
-  try {
-    console.log('[authService.verifyOtp] Verifying OTP...', { email });
-
-    const { data, error } = await supabase.auth.verifyOtp({
-      email: email.trim(),
-      token: token.trim(),
-      type: 'signup'
-    });
-
-    if (error) {
-      console.error('[authService.verifyOtp] Error:', error);
-      return { data: null, error };
-    }
-
-    console.log('[authService.verifyOtp] OTP verified successfully');
-    return { data, error: null };
-  } catch (error: any) {
-    console.error('[authService.verifyOtp] Unexpected error:', error);
-    return {
-      data: null,
-      error: { message: error.message || 'OTP 검증 중 오류가 발생했습니다.' }
     };
   }
 };
