@@ -603,38 +603,261 @@ export const updateUserInSupabase = async (userId: string, updates: Partial<Regi
   }
 };
 
-// Sync all local data to Supabase
-export const syncToSupabase = async (): Promise<{ success: boolean; message: string }> => {
+// Sync all local data to Supabase (Local → Cloud)
+export const syncLocalToSupabase = async (): Promise<{ success: boolean; message: string }> => {
   if (!isSupabaseConfigured()) {
     return { success: false, message: 'Supabase가 구성되지 않았습니다.' };
   }
   
+  console.log('[syncLocalToSupabase] Starting local to cloud sync...');
+  
   try {
     // Sync exams
     const localExams = getExams();
+    console.log(`[syncLocalToSupabase] Syncing ${localExams.length} exams...`);
     for (const exam of localExams) {
       await saveExamToSupabase(exam);
     }
     
     // Sync scores
     const allScores = JSON.parse(localStorage.getItem(KEY_SCORES) || '[]') as UserScore[];
+    console.log(`[syncLocalToSupabase] Syncing ${allScores.length} scores...`);
     for (const score of allScores) {
       await saveUserScoreToSupabase(score);
     }
     
     // Sync users (profiles)
     const localUsers = getRegisteredUsers();
+    console.log(`[syncLocalToSupabase] Syncing ${localUsers.length} users...`);
     for (const user of localUsers) {
       if (user.supabaseUserId) {
         await updateUserInSupabase(user.supabaseUserId, user);
       }
     }
     
-    return { success: true, message: '데이터가 성공적으로 동기화되었습니다.' };
+    console.log('[syncLocalToSupabase] Local to cloud sync completed successfully');
+    return { success: true, message: '로컬 데이터가 클라우드에 동기화되었습니다.' };
   } catch (error: any) {
-    console.error('Sync error:', error);
+    console.error('[syncLocalToSupabase] Sync error:', error);
     return { success: false, message: `동기화 실패: ${error.message}` };
   }
+};
+
+// Sync all data from Supabase to local (Cloud → Local)
+export const syncSupabaseToLocal = async (): Promise<{ success: boolean; message: string; stats: { exams: number; scores: number; users: number } }> => {
+  if (!isSupabaseConfigured()) {
+    return { success: false, message: 'Supabase가 구성되지 않았습니다.', stats: { exams: 0, scores: 0, users: 0 } };
+  }
+  
+  console.log('[syncSupabaseToLocal] Starting cloud to local sync...');
+  
+  try {
+    const stats = { exams: 0, scores: 0, users: 0 };
+    
+    // Sync exams from Supabase
+    console.log('[syncSupabaseToLocal] Fetching exams from Supabase...');
+    const { data: examRows, error: examError } = await supabase
+      .from('exams')
+      .select('*')
+      .order('created_at', { ascending: false });
+    
+    if (examError) {
+      console.error('[syncSupabaseToLocal] Error fetching exams:', examError);
+      throw new Error(`시험 데이터 가져오기 실패: ${examError.message}`);
+    }
+    
+    if (examRows && examRows.length > 0) {
+      console.log(`[syncSupabaseToLocal] Merging ${examRows.length} exams...`);
+      const localExams = getExams();
+      const localExamMap = new Map(localExams.map(e => [e.id, e]));
+      
+      for (const row of examRows as ExamRow[]) {
+        const cloudExam: ExamConfig = {
+          ...row.config,
+          id: row.id,
+          title: row.title || row.config?.title,
+        };
+        
+        const localExam = localExamMap.get(cloudExam.id);
+        
+        // 충돌 해결: 최신 타임스탬프 기준 또는 클라우드 우선
+        const cloudTimestamp = new Date(row.created_at).getTime();
+        const localTimestamp = localExam?.createdAt || 0;
+        
+        if (!localExam || cloudTimestamp >= localTimestamp) {
+          // 클라우드 데이터 사용
+          localExamMap.set(cloudExam.id, cloudExam);
+          stats.exams++;
+        }
+      }
+      
+      // 로컬에 저장
+      const mergedExams = Array.from(localExamMap.values());
+      localStorage.setItem(KEY_EXAMS, JSON.stringify(mergedExams));
+      console.log(`[syncSupabaseToLocal] Merged ${stats.exams} exams to local`);
+    }
+    
+    // Sync scores from Supabase
+    console.log('[syncSupabaseToLocal] Fetching scores from Supabase...');
+    const { data: scoreRows, error: scoreError } = await supabase
+      .from('scores')
+      .select('*')
+      .order('created_at', { ascending: false });
+    
+    if (scoreError) {
+      console.error('[syncSupabaseToLocal] Error fetching scores:', scoreError);
+      throw new Error(`점수 데이터 가져오기 실패: ${scoreError.message}`);
+    }
+    
+    if (scoreRows && scoreRows.length > 0) {
+      console.log(`[syncSupabaseToLocal] Merging ${scoreRows.length} scores...`);
+      const localScores = getAllScores();
+      const localScoreMap = new Map(localScores.map(s => [s.id, s]));
+      
+      for (const row of scoreRows as ScoreRow[]) {
+        const cloudScore: UserScore = {
+          ...row.detail,
+          id: row.id,
+          examId: row.exam_id,
+          totalScore: row.total_score,
+        };
+        
+        const localScore = localScoreMap.get(cloudScore.id);
+        const cloudTimestamp = new Date(row.created_at).getTime();
+        const localTimestamp = localScore?.timestamp || 0;
+        
+        if (!localScore || cloudTimestamp >= localTimestamp) {
+          localScoreMap.set(cloudScore.id, cloudScore);
+          stats.scores++;
+        }
+      }
+      
+      // 로컬에 저장
+      const mergedScores = Array.from(localScoreMap.values());
+      localStorage.setItem(KEY_SCORES, JSON.stringify(mergedScores));
+      console.log(`[syncSupabaseToLocal] Merged ${stats.scores} scores to local`);
+    }
+    
+    // Sync users (profiles) from Supabase
+    console.log('[syncSupabaseToLocal] Fetching users from Supabase...');
+    const { data: userRows, error: userError } = await supabase
+      .from('profiles')
+      .select('*')
+      .order('name');
+    
+    if (userError) {
+      console.error('[syncSupabaseToLocal] Error fetching users:', userError);
+      throw new Error(`사용자 데이터 가져오기 실패: ${userError.message}`);
+    }
+    
+    if (userRows && userRows.length > 0) {
+      console.log(`[syncSupabaseToLocal] Merging ${userRows.length} users...`);
+      const localUsers = getRegisteredUsers();
+      const localUserMap = new Map(localUsers.map(u => [u.supabaseUserId || u.username, u]));
+      
+      for (const row of userRows as ProfileRow[]) {
+        const cloudUser: RegisteredUser = {
+          username: row.username || '',
+          password: row.password || '',
+          name: row.name || '',
+          studentNumber: row.student_number || '',
+          email: row.email || '',
+          grade: row.grade as 1 | 2 | 3 | undefined,
+          supabaseUserId: row.id,
+        };
+        
+        // 사용자는 ID로 병합
+        localUserMap.set(row.id, cloudUser);
+        stats.users++;
+      }
+      
+      // 로컬에 저장
+      const mergedUsers = Array.from(localUserMap.values());
+      localStorage.setItem(KEY_USERS, JSON.stringify(mergedUsers));
+      console.log(`[syncSupabaseToLocal] Merged ${stats.users} users to local`);
+    }
+    
+    console.log('[syncSupabaseToLocal] Cloud to local sync completed successfully', stats);
+    return { 
+      success: true, 
+      message: `클라우드 데이터가 로컬에 동기화되었습니다. (시험: ${stats.exams}, 점수: ${stats.scores}, 회원: ${stats.users})`,
+      stats 
+    };
+  } catch (error: any) {
+    console.error('[syncSupabaseToLocal] Sync error:', error);
+    return { 
+      success: false, 
+      message: `동기화 실패: ${error.message}`, 
+      stats: { exams: 0, scores: 0, users: 0 } 
+    };
+  }
+};
+
+// Bidirectional sync (Local ↔ Cloud)
+export const syncBidirectional = async (): Promise<{ success: boolean; message: string; stats: { uploaded: { exams: number; scores: number; users: number }; downloaded: { exams: number; scores: number; users: number } } }> => {
+  if (!isSupabaseConfigured()) {
+    return { 
+      success: false, 
+      message: 'Supabase가 구성되지 않았습니다.', 
+      stats: { 
+        uploaded: { exams: 0, scores: 0, users: 0 }, 
+        downloaded: { exams: 0, scores: 0, users: 0 } 
+      } 
+    };
+  }
+  
+  console.log('[syncBidirectional] Starting bidirectional sync...');
+  
+  try {
+    // Step 1: Download from cloud first (to get latest data)
+    console.log('[syncBidirectional] Step 1: Downloading from cloud...');
+    const downloadResult = await syncSupabaseToLocal();
+    if (!downloadResult.success) {
+      console.warn('[syncBidirectional] Download failed, continuing with upload...');
+    }
+    
+    // Step 2: Upload local changes to cloud
+    console.log('[syncBidirectional] Step 2: Uploading to cloud...');
+    const uploadResult = await syncLocalToSupabase();
+    if (!uploadResult.success) {
+      console.warn('[syncBidirectional] Upload failed');
+    }
+    
+    // Step 3: Download again to get any new data from other clients
+    console.log('[syncBidirectional] Step 3: Final download to get merged data...');
+    const finalDownloadResult = await syncSupabaseToLocal();
+    
+    const stats = {
+      uploaded: {
+        exams: uploadResult.success ? getExams().length : 0,
+        scores: uploadResult.success ? getAllScores().length : 0,
+        users: uploadResult.success ? getRegisteredUsers().length : 0,
+      },
+      downloaded: finalDownloadResult.stats,
+    };
+    
+    const success = uploadResult.success && (downloadResult.success || finalDownloadResult.success);
+    const message = `양방향 동기화가 완료되었습니다.\n업로드: 시험 ${stats.uploaded.exams}개, 점수 ${stats.uploaded.scores}개, 회원 ${stats.uploaded.users}명\n다운로드: 시험 ${stats.downloaded.exams}개, 점수 ${stats.downloaded.scores}개, 회원 ${stats.downloaded.users}명`;
+    
+    console.log('[syncBidirectional] Bidirectional sync completed', stats);
+    return { success, message, stats };
+  } catch (error: any) {
+    console.error('[syncBidirectional] Bidirectional sync error:', error);
+    return { 
+      success: false, 
+      message: `양방향 동기화 실패: ${error.message}`, 
+      stats: { 
+        uploaded: { exams: 0, scores: 0, users: 0 }, 
+        downloaded: { exams: 0, scores: 0, users: 0 } 
+      } 
+    };
+  }
+};
+
+// Legacy function - now calls bidirectional sync
+export const syncToSupabase = async (): Promise<{ success: boolean; message: string }> => {
+  const result = await syncBidirectional();
+  return { success: result.success, message: result.message };
 };
 
 // =============================================================================

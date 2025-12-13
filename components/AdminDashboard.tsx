@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { ExamConfig, McqConfig, SubjectiveConfig, RegisteredUser } from '../types';
-import { getExams, saveExam, deleteExam, resetExamScores, getScoresByExamId, completeExam, getRegisteredUsers, updateUser, deleteUser, getSpecialMembers, addSpecialMember, removeSpecialMember, isSpecialMember, getUserLoginIps, downloadBackup, importAllData, BackupData, downloadExamData, downloadExamConfig, downloadUsersData, syncToSupabase } from '../services/storageService';
+import { getExams, saveExam, deleteExam, resetExamScores, getScoresByExamId, completeExam, getRegisteredUsers, updateUser, deleteUser, getSpecialMembers, addSpecialMember, removeSpecialMember, isSpecialMember, getUserLoginIps, downloadBackup, importAllData, BackupData, downloadExamData, downloadExamConfig, downloadUsersData, syncBidirectional, syncSupabaseToLocal, syncLocalToSupabase } from '../services/storageService';
 import { isSupabaseConfigured } from '../services/supabaseClient';
 import { Trash2, Plus, Save, AlertTriangle, ArrowLeft, Edit, FileText, CheckSquare, PenTool, BarChart2, Settings, Globe, ChevronDown, ChevronUp, Download, Upload, Cloud, Loader2 } from 'lucide-react';
 import ResultStats from './ResultStats';
@@ -571,25 +571,82 @@ const AdminDashboard: React.FC = () => {
               />
             </label>
             {isSupabaseConfigured() && (
-              <button
-                onClick={async () => {
-                  if (!confirm('로컬 데이터를 Supabase 클라우드에 동기화하시겠습니까?')) return;
-                  setIsSyncing(true);
-                  try {
-                    const result = await syncToSupabase();
-                    alert(result.message);
-                  } catch (error) {
-                    alert('동기화 중 오류가 발생했습니다.');
-                  } finally {
-                    setIsSyncing(false);
-                  }
-                }}
-                disabled={isSyncing}
-                className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-medium text-sm disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                {isSyncing ? <Loader2 size={16} className="animate-spin" /> : <Cloud size={16} />}
-                {isSyncing ? '동기화 중...' : '클라우드 동기화'}
-              </button>
+              <div className="flex gap-2 flex-wrap">
+                <button
+                  onClick={async () => {
+                    if (!confirm('로컬과 클라우드 데이터를 양방향으로 동기화하시겠습니까?\n\n로컬 데이터를 클라우드에 업로드하고, 클라우드의 최신 데이터를 로컬에 다운로드합니다.')) return;
+                    setIsSyncing(true);
+                    try {
+                      const result = await syncBidirectional();
+                      if (result.success) {
+                        alert(result.message);
+                        // 데이터 새로고침
+                        loadExams();
+                        setUsers(getRegisteredUsers());
+                      } else {
+                        alert(result.message);
+                      }
+                    } catch (error: any) {
+                      alert(`동기화 중 오류가 발생했습니다: ${error.message || '알 수 없는 오류'}`);
+                    } finally {
+                      setIsSyncing(false);
+                    }
+                  }}
+                  disabled={isSyncing}
+                  className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-medium text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+                  title="양방향 동기화: 로컬 ↔ 클라우드"
+                >
+                  {isSyncing ? <Loader2 size={16} className="animate-spin" /> : <Cloud size={16} />}
+                  {isSyncing ? '동기화 중...' : '양방향 동기화'}
+                </button>
+                <button
+                  onClick={async () => {
+                    if (!confirm('클라우드의 데이터를 로컬에 다운로드하시겠습니까?\n\n기존 로컬 데이터와 병합됩니다.')) return;
+                    setIsSyncing(true);
+                    try {
+                      const result = await syncSupabaseToLocal();
+                      if (result.success) {
+                        alert(result.message);
+                        // 데이터 새로고침
+                        loadExams();
+                        setUsers(getRegisteredUsers());
+                      } else {
+                        alert(result.message);
+                      }
+                    } catch (error: any) {
+                      alert(`동기화 중 오류가 발생했습니다: ${error.message || '알 수 없는 오류'}`);
+                    } finally {
+                      setIsSyncing(false);
+                    }
+                  }}
+                  disabled={isSyncing}
+                  className="flex items-center gap-2 px-3 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 font-medium text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+                  title="클라우드 → 로컬 다운로드"
+                >
+                  <Download size={14} />
+                  클라우드에서 가져오기
+                </button>
+                <button
+                  onClick={async () => {
+                    if (!confirm('로컬 데이터를 클라우드에 업로드하시겠습니까?')) return;
+                    setIsSyncing(true);
+                    try {
+                      const result = await syncLocalToSupabase();
+                      alert(result.message);
+                    } catch (error: any) {
+                      alert(`동기화 중 오류가 발생했습니다: ${error.message || '알 수 없는 오류'}`);
+                    } finally {
+                      setIsSyncing(false);
+                    }
+                  }}
+                  disabled={isSyncing}
+                  className="flex items-center gap-2 px-3 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 font-medium text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+                  title="로컬 → 클라우드 업로드"
+                >
+                  <Upload size={14} />
+                  클라우드에 업로드
+                </button>
+              </div>
             )}
           </div>
         </div>
