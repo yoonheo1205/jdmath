@@ -1,0 +1,5 @@
+{
+  "name": "JDMATH GRADE SYSTEM",
+  "description": "A comprehensive grading and statistical analysis application. Features exam configuration, OMR-style testing, and advanced grade cutoff calculations (9-tier & 5-tier) with statistical visualizations.",
+  "requestFramePermissions": []
+}
