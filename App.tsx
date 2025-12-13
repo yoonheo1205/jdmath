@@ -6,7 +6,8 @@ import ResultStats from './components/ResultStats';
 import Login from './components/Login';
 import ProfileEdit from './components/ProfileEdit';
 import { UserSession, ExamConfig } from './types';
-import { getExams, getActiveExams, getCompletedExams, hasUserTakenExam, getScoresByExamId, initializeTestAccount } from './services/storageService';
+import { getExams, getActiveExams, getCompletedExams, hasUserTakenExam, getScoresByExamId, initializeTestAccount, syncSupabaseToLocal } from './services/storageService';
+import { isSupabaseConfigured } from './services/supabaseClient';
 import { calculateCutoffs, CSAT_TIERS, RELATIVE_5_TIERS } from './services/mathService';
 import { LogOut, FileText, BarChart2, Instagram, ChevronDown, Github } from 'lucide-react';
 
@@ -53,6 +54,50 @@ const App: React.FC = () => {
       setExamList(getActiveExams());
     }
   }, [view, session]);
+
+  // Auto-sync from cloud every 10 seconds when logged in and Supabase is configured
+  useEffect(() => {
+    if (!session || !isSupabaseConfigured()) {
+      return; // Don't sync if not logged in or Supabase not configured
+    }
+
+    console.log('[App] Starting auto-sync from cloud (every 10 seconds)');
+
+    // Initial sync on mount
+    syncSupabaseToLocal().then(result => {
+      if (result.success) {
+        console.log('[App] Initial sync completed:', result.message);
+        // Refresh exam list if student view
+        if (session?.role === 'STUDENT' && (view === 'HOME' || view === 'GRADE_1' || view === 'GRADE_2' || view === 'GRADE_3')) {
+          setExamList(getActiveExams());
+        }
+      }
+    }).catch(error => {
+      console.error('[App] Initial sync error:', error);
+    });
+
+    // Set up interval for periodic sync
+    const syncInterval = setInterval(() => {
+      console.log('[App] Auto-syncing from cloud...');
+      syncSupabaseToLocal().then(result => {
+        if (result.success) {
+          console.log('[App] Auto-sync completed:', result.message);
+          // Refresh exam list if student view
+          if (session?.role === 'STUDENT' && (view === 'HOME' || view === 'GRADE_1' || view === 'GRADE_2' || view === 'GRADE_3')) {
+            setExamList(getActiveExams());
+          }
+        }
+      }).catch(error => {
+        console.error('[App] Auto-sync error:', error);
+      });
+    }, 10000); // 10 seconds
+
+    // Cleanup interval on unmount or session change
+    return () => {
+      console.log('[App] Stopping auto-sync');
+      clearInterval(syncInterval);
+    };
+  }, [session, view]); // Re-run when session or view changes
 
   const handleLogin = (userSession: UserSession) => {
     setSession(userSession);

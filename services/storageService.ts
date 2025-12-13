@@ -921,7 +921,22 @@ export const hasUserTakenExam = (examId: string, userId: string): boolean => {
   return scores.some(s => s.examId === examId && s.userId === userId);
 };
 
-export const deleteExam = (id: string) => {
+export const deleteExam = async (id: string): Promise<void> => {
+  console.log('[deleteExam] Called with examId:', id);
+  
+  // Auto-sync to Supabase if configured (delete from Supabase first)
+  if (isSupabaseConfigured()) {
+    try {
+      await deleteExamFromSupabase(id);
+      console.log('[deleteExam] Auto-synced to Supabase');
+      return; // deleteExamFromSupabase already handles localStorage
+    } catch (error) {
+      console.error('[deleteExam] Failed to sync to Supabase:', error);
+      // Continue with localStorage deletion even if Supabase sync fails
+    }
+  }
+  
+  // Fallback to localStorage only
   const exams = getExams();
   const newExams = exams.filter(e => e.id !== id);
   localStorage.setItem(KEY_EXAMS, JSON.stringify(newExams));
@@ -930,6 +945,7 @@ export const deleteExam = (id: string) => {
   const scores = getAllScores();
   const newScores = scores.filter(s => s.examId !== id);
   localStorage.setItem(KEY_SCORES, JSON.stringify(newScores));
+  console.log('[deleteExam] Deleted from localStorage');
 };
 
 // --- Score Management ---
@@ -970,7 +986,9 @@ export const getUserScoreByExamId = (examId: string, userId: string): UserScore 
 };
 
 // 사용자 성적 수정
-export const updateUserScore = (scoreId: string, updates: Partial<UserScore>): boolean => {
+export const updateUserScore = async (scoreId: string, updates: Partial<UserScore>): Promise<boolean> => {
+  console.log('[updateUserScore] Called with scoreId:', scoreId);
+  
   const scores = getAllScores();
   const index = scores.findIndex(s => s.id === scoreId);
   if (index === -1) return false;
@@ -986,17 +1004,46 @@ export const updateUserScore = (scoreId: string, updates: Partial<UserScore>): b
     updates.subjectiveScore = Math.round(updates.subjectiveScore * 100) / 100;
   }
   
-  scores[index] = { ...scores[index], ...updates };
+  const updatedScore = { ...scores[index], ...updates };
+  scores[index] = updatedScore;
   localStorage.setItem(KEY_SCORES, JSON.stringify(scores));
+  console.log('[updateUserScore] Updated in localStorage');
+  
+  // Auto-sync to Supabase if configured
+  if (isSupabaseConfigured()) {
+    try {
+      await saveUserScoreToSupabase(updatedScore);
+      console.log('[updateUserScore] Auto-synced to Supabase');
+    } catch (error) {
+      console.error('[updateUserScore] Failed to sync to Supabase:', error);
+      // Continue even if Supabase sync fails
+    }
+  }
+  
   return true;
 };
 
 // 사용자 성적 삭제
-export const deleteUserScore = (scoreId: string): boolean => {
+export const deleteUserScore = async (scoreId: string): Promise<boolean> => {
+  console.log('[deleteUserScore] Called with scoreId:', scoreId);
+  
   const scores = getAllScores();
   const newScores = scores.filter(s => s.id !== scoreId);
   if (newScores.length === scores.length) return false;
   localStorage.setItem(KEY_SCORES, JSON.stringify(newScores));
+  console.log('[deleteUserScore] Deleted from localStorage');
+  
+  // Auto-sync to Supabase if configured
+  if (isSupabaseConfigured()) {
+    try {
+      await deleteUserScoreFromSupabase(scoreId);
+      console.log('[deleteUserScore] Auto-synced to Supabase');
+    } catch (error) {
+      console.error('[deleteUserScore] Failed to sync to Supabase:', error);
+      // Continue even if Supabase sync fails
+    }
+  }
+  
   return true;
 };
 

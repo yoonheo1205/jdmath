@@ -607,7 +607,7 @@ const ResultStats: React.FC<ResultStatsProps> = ({ examId, currentResultId, isAd
   };
 
   // 성적 수정 저장
-  const handleSaveScore = () => {
+  const handleSaveScore = async () => {
     if (!currentUserScore || !config) return;
     
     // 점수 재계산
@@ -625,17 +625,22 @@ const ResultStats: React.FC<ResultStatsProps> = ({ examId, currentResultId, isAd
     
     const totalScore = Math.round((mcqScore + subjScore) * 100) / 100;
     
-    updateUserScore(currentUserScore.id, {
-      mcqAnswers: editingMcqAnswers,
-      subjectiveScores: editingSubjScores,
-      mcqScore: Math.round(mcqScore * 100) / 100,
-      subjectiveScore: Math.round(subjScore * 100) / 100,
-      totalScore
-    });
-    
-    setIsEditingScore(false);
-    loadData();
-    alert('성적이 수정되었습니다.');
+    try {
+      await updateUserScore(currentUserScore.id, {
+        mcqAnswers: editingMcqAnswers,
+        subjectiveScores: editingSubjScores,
+        mcqScore: Math.round(mcqScore * 100) / 100,
+        subjectiveScore: Math.round(subjScore * 100) / 100,
+        totalScore
+      });
+      
+      setIsEditingScore(false);
+      loadData();
+      alert('성적이 수정되었습니다.');
+    } catch (error: any) {
+      console.error('Error updating score:', error);
+      alert(`성적 수정 중 오류가 발생했습니다: ${error.message || '알 수 없는 오류'}`);
+    }
   };
 
   // 성적 수정 취소
@@ -646,12 +651,17 @@ const ResultStats: React.FC<ResultStatsProps> = ({ examId, currentResultId, isAd
   };
 
   // 성적 삭제
-  const handleDeleteScore = () => {
+  const handleDeleteScore = async () => {
     if (!currentUserScore) return;
     if (confirm('정말 성적을 삭제하시겠습니까? 삭제 후 다시 시험을 응시할 수 있습니다.')) {
-      deleteUserScore(currentUserScore.id);
-      loadData();
-      alert('성적이 삭제되었습니다.');
+      try {
+        await deleteUserScore(currentUserScore.id);
+        loadData();
+        alert('성적이 삭제되었습니다.');
+      } catch (error: any) {
+        console.error('Error deleting score:', error);
+        alert(`성적 삭제 중 오류가 발생했습니다: ${error.message || '알 수 없는 오류'}`);
+      }
     }
   };
 

@@ -116,10 +116,15 @@ const AdminDashboard: React.FC = () => {
     setMode('STATS');
   };
 
-  const handleDeleteExam = (id: string) => {
+  const handleDeleteExam = async (id: string) => {
     if (confirm('정말로 이 시험을 삭제하시겠습니까? 관련된 모든 성적 데이터도 함께 삭제됩니다.')) {
-      deleteExam(id);
-      loadExams();
+      try {
+        await deleteExam(id);
+        loadExams();
+      } catch (error: any) {
+        console.error('Error deleting exam:', error);
+        alert(`시험 삭제 중 오류가 발생했습니다: ${error.message || '알 수 없는 오류'}`);
+      }
     }
   };
 
