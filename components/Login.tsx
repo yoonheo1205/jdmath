@@ -43,6 +43,8 @@ const Login: React.FC<LoginProps> = ({ onLogin, onCancel }) => {
   const [verificationCode, setVerificationCode] = useState('');
   const [sentCode, setSentCode] = useState('');
   const [isVerified, setIsVerified] = useState(false);
+  const [isSendingCode, setIsSendingCode] = useState(false);
+  const [isVerifyingCode, setIsVerifyingCode] = useState(false);
   
   // Terms Agreement State
   const [showTermsModal, setShowTermsModal] = useState(false);
@@ -78,7 +80,7 @@ const Login: React.FC<LoginProps> = ({ onLogin, onCancel }) => {
       
       if (result.success && result.session) {
         onLogin(result.session);
-      } else {
+    } else {
         alert(result.error || '아이디 또는 비밀번호가 일치하지 않습니다.');
       }
     } catch (error: any) {
@@ -130,51 +132,130 @@ const Login: React.FC<LoginProps> = ({ onLogin, onCancel }) => {
       return;
     }
     
+    setIsSendingCode(true);
+    
     try {
       // Supabase에서 이메일 중복 체크
-      const { data: existingUsers } = await supabase
-        .from('profiles')
-        .select('email')
-        .eq('email', regEmail.trim())
-        .limit(1);
-      
-      if (existingUsers && existingUsers.length > 0) {
-        alert('이미 사용 중인 이메일입니다.');
-        return;
+      if (isSupabaseConfigured()) {
+        const { data: existingUsers } = await supabase
+          .from('profiles')
+          .select('email')
+          .eq('email', regEmail.trim())
+          .limit(1);
+        
+        if (existingUsers && existingUsers.length > 0) {
+          alert('이미 사용 중인 이메일입니다.');
+          setIsSendingCode(false);
+          return;
+        }
       }
       
-      // 실제 이메일 발송 (간단한 인증 코드 생성)
-      const code = Math.floor(1000 + Math.random() * 9000).toString();
-      setSentCode(code);
-      
-      // 개발 환경에서는 콘솔에 출력
-      if (import.meta.env.DEV) {
-        console.log(`[개발 환경] 인증 코드: ${code}`);
+      // Supabase OTP를 사용하여 실제 이메일로 인증 코드 전송
+      if (isSupabaseConfigured()) {
+        console.log('[sendVerificationCode] Sending OTP via Supabase to:', regEmail.trim());
+        const { data, error } = await supabase.auth.signInWithOtp({
+          email: regEmail.trim(),
+          options: {
+            shouldCreateUser: false, // 회원가입 전이므로 사용자 생성하지 않음
+            emailRedirectTo: `${window.location.origin}`,
+          }
+        });
+
+        if (error) {
+          console.error('[sendVerificationCode] Supabase OTP error:', error);
+          // Supabase OTP 실패 시 폴백: 로컬 코드 생성
+          const code = Math.floor(1000 + Math.random() * 9000).toString();
+          setSentCode(code);
+          localStorage.setItem(`email_verification_${regEmail}`, code);
+          alert(`인증 코드가 생성되었습니다.\n\n인증 코드: ${code}\n\n(Supabase 이메일 전송 실패, 로컬 코드 사용)`);
+          setIsSendingCode(false);
+          return;
+        }
+
+        if (data) {
+          console.log('[sendVerificationCode] OTP sent successfully via Supabase');
+          alert('인증 코드가 이메일로 전송되었습니다.\n\n이메일을 확인하여 인증 코드를 입력해주세요.');
+          setIsSendingCode(false);
+          return;
+        }
       }
       
-      // 실제 환경에서는 Supabase의 이메일 기능을 사용하거나 외부 서비스를 사용
-      // 여기서는 간단히 로컬 스토리지에 저장
-      localStorage.setItem(`email_verification_${regEmail}`, code);
-      
-      alert(`인증 코드가 생성되었습니다.\n\n인증 코드: ${code}\n\n(개발 환경에서는 콘솔에도 출력됩니다)`);
-    } catch (error) {
-      console.error('Email verification error:', error);
-      // 에러가 발생해도 개발 환경에서는 계속 진행
+      // Supabase가 구성되지 않은 경우 폴백
       const code = Math.floor(1000 + Math.random() * 9000).toString();
       setSentCode(code);
       localStorage.setItem(`email_verification_${regEmail}`, code);
-      alert(`인증 코드가 생성되었습니다.\n\n인증 코드: ${code}`);
+      alert(`인증 코드가 생성되었습니다.\n\n인증 코드: ${code}\n\n(Supabase 미구성, 로컬 코드 사용)`);
+    } catch (error: any) {
+      console.error('[sendVerificationCode] Error:', error);
+      // 에러 발생 시 폴백
+      const code = Math.floor(1000 + Math.random() * 9000).toString();
+      setSentCode(code);
+      localStorage.setItem(`email_verification_${regEmail}`, code);
+      alert(`인증 코드가 생성되었습니다.\n\n인증 코드: ${code}\n\n(오류 발생, 로컬 코드 사용)`);
+    } finally {
+      setIsSendingCode(false);
     }
   };
 
-  const verifyCode = () => {
-    const storedCode = localStorage.getItem(`email_verification_${regEmail}`);
-    if ((verificationCode === sentCode && sentCode !== '') || verificationCode === storedCode) {
+  const verifyCode = async () => {
+    if (!verificationCode.trim()) {
+      alert('인증 코드를 입력해주세요.');
+      return;
+    }
+
+    setIsVerifyingCode(true);
+
+    try {
+      // Supabase OTP 검증
+      if (isSupabaseConfigured()) {
+        console.log('[verifyCode] Verifying OTP via Supabase...');
+        const { data, error } = await supabase.auth.verifyOtp({
+          email: regEmail.trim(),
+          token: verificationCode.trim(),
+          type: 'email'
+        });
+
+        if (error) {
+          console.error('[verifyCode] Supabase OTP verification error:', error);
+          // Supabase 검증 실패 시 폴백: 로컬 코드 검증
+          const storedCode = localStorage.getItem(`email_verification_${regEmail}`);
+          if (verificationCode === sentCode && sentCode !== '' || verificationCode === storedCode) {
+            setIsVerified(true);
+            localStorage.removeItem(`email_verification_${regEmail}`);
+            alert('인증되었습니다. (로컬 코드 사용)');
+            setIsVerifyingCode(false);
+            return;
+          } else {
+            alert(`인증 코드가 올바르지 않습니다: ${error.message}`);
+            setIsVerifyingCode(false);
+            return;
+          }
+        }
+
+        if (data) {
+          console.log('[verifyCode] OTP verified successfully via Supabase');
       setIsVerified(true);
-      localStorage.removeItem(`email_verification_${regEmail}`);
+          localStorage.removeItem(`email_verification_${regEmail}`);
       alert('인증되었습니다.');
+          setIsVerifyingCode(false);
+          return;
+        }
+      }
+
+      // Supabase가 구성되지 않은 경우 폴백: 로컬 코드 검증
+      const storedCode = localStorage.getItem(`email_verification_${regEmail}`);
+      if ((verificationCode === sentCode && sentCode !== '') || verificationCode === storedCode) {
+        setIsVerified(true);
+        localStorage.removeItem(`email_verification_${regEmail}`);
+        alert('인증되었습니다. (로컬 코드 사용)');
     } else {
       alert('인증 코드가 올바르지 않습니다.');
+      }
+    } catch (error: any) {
+      console.error('[verifyCode] Error:', error);
+      alert(`인증 중 오류가 발생했습니다: ${error.message || '알 수 없는 오류'}`);
+    } finally {
+      setIsVerifyingCode(false);
     }
   };
 
@@ -210,7 +291,7 @@ const Login: React.FC<LoginProps> = ({ onLogin, onCancel }) => {
   const handleSignUpComplete = async () => {
     setShowTermsModal(false);
     setIsLoading(true);
-    
+
     // 이메일에서 학년 추출
     const emailParts = regEmail.split('@');
     const emailId = emailParts[0].toLowerCase();
@@ -229,10 +310,10 @@ const Login: React.FC<LoginProps> = ({ onLogin, onCancel }) => {
       // Use the new unified signup function
       const result = await signUpWithSupabase({
         email: regEmail.trim(),
-        password: regPw.trim(),
+      password: regPw.trim(),
         username: finalUsername,
-        name: regName.trim(),
-        studentNumber: regStudentNumber.trim(),
+      name: regName.trim(),
+      studentNumber: regStudentNumber.trim(),
         grade: detectedGrade,
       });
 
@@ -240,10 +321,10 @@ const Login: React.FC<LoginProps> = ({ onLogin, onCancel }) => {
         const gradeText = detectedGrade ? `${detectedGrade}학년으로 등록되었습니다` : '등록되었습니다';
         const emailAuthNote = isSupabaseConfigured() ? '\n이메일 인증을 완료한 후 로그인해주세요.' : '';
         alert(`회원가입이 완료되었습니다. (${gradeText})${emailAuthNote}`);
-        setStudentMode('LOGIN');
-        setRegId(''); setRegPw(''); setRegName(''); setRegStudentNumber(''); setRegEmail('');
-        setIsVerified(false); setVerificationCode(''); setSentCode('');
-      } else {
+      setStudentMode('LOGIN');
+      setRegId(''); setRegPw(''); setRegName(''); setRegStudentNumber(''); setRegEmail('');
+      setIsVerified(false); setVerificationCode(''); setSentCode('');
+    } else {
         alert(result.error || '회원가입에 실패했습니다.');
       }
     } catch (error: any) {
@@ -445,10 +526,19 @@ const Login: React.FC<LoginProps> = ({ onLogin, onCancel }) => {
                     <button 
                       type="button"
                       onClick={sendVerificationCode}
-                      disabled={isVerified}
-                      className={`px-3 py-1 rounded text-xs font-medium transition-colors whitespace-nowrap ${isVerified ? 'bg-green-100 text-green-700' : 'bg-slate-200 text-slate-700 hover:bg-slate-300'}`}
+                      disabled={isVerified || isSendingCode}
+                      className={`px-3 py-1 rounded text-xs font-medium transition-colors whitespace-nowrap flex items-center gap-1 ${isVerified ? 'bg-green-100 text-green-700' : 'bg-slate-200 text-slate-700 hover:bg-slate-300'} ${isSendingCode ? 'opacity-50 cursor-not-allowed' : ''}`}
                     >
-                      {isVerified ? '인증됨' : '인증코드 발송'}
+                      {isSendingCode ? (
+                        <>
+                          <Loader2 size={12} className="animate-spin" />
+                          전송 중...
+                        </>
+                      ) : isVerified ? (
+                        '인증됨'
+                      ) : (
+                        '인증코드 발송'
+                      )}
                     </button>
                   </div>
                   
@@ -464,9 +554,17 @@ const Login: React.FC<LoginProps> = ({ onLogin, onCancel }) => {
                       <button 
                         type="button"
                         onClick={verifyCode}
-                        className="px-3 py-1 bg-indigo-600 text-white rounded text-xs font-medium hover:bg-indigo-700 whitespace-nowrap"
+                        disabled={isVerifyingCode}
+                        className={`px-3 py-1 bg-indigo-600 text-white rounded text-xs font-medium hover:bg-indigo-700 whitespace-nowrap flex items-center gap-1 ${isVerifyingCode ? 'opacity-50 cursor-not-allowed' : ''}`}
                       >
-                        확인
+                        {isVerifyingCode ? (
+                          <>
+                            <Loader2 size={12} className="animate-spin" />
+                            확인 중...
+                          </>
+                        ) : (
+                          '확인'
+                        )}
                       </button>
                     </div>
                   )}
