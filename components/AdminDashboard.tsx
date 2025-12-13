@@ -163,7 +163,7 @@ const AdminDashboard: React.FC = () => {
     setSubjectives(newSubs);
   };
 
-  const handleSave = () => {
+  const handleSave = async () => {
     if (existingScoresCount > 0) {
       if (!confirm("시험 설정을 변경하면 기존 통계 데이터의 신뢰성이 떨어질 수 있습니다. 계속하시겠습니까?")) {
         return;
@@ -203,10 +203,19 @@ const AdminDashboard: React.FC = () => {
       } : undefined
     };
 
-    saveExam(config);
-    alert('시험 설정이 저장되었습니다.');
-    setMode('LIST');
-    loadExams();
+    try {
+      const success = await saveExam(config);
+      if (success) {
+        alert('시험 설정이 저장되었습니다.');
+        setMode('LIST');
+        loadExams();
+      } else {
+        alert('시험 설정 저장에 실패했습니다.');
+      }
+    } catch (error: any) {
+      console.error('Error saving exam:', error);
+      alert(`시험 설정 저장 중 오류가 발생했습니다: ${error.message || '알 수 없는 오류'}`);
+    }
   };
 
   const handleResetData = () => {

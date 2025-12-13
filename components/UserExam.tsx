@@ -144,12 +144,12 @@ const UserExam: React.FC<UserExamProps> = ({ examId, user, onComplete, onCancel 
   };
 
   // 약관 동의 완료 후 실제 제출 처리
-  const processSubmission = () => {
+  const processSubmission = async () => {
     setShowTermsModal(false);
     setIsSubmitting(true);
 
     // Use setTimeout to ensure the UI updates to "Processing..." before any heavy lifting
-    setTimeout(() => {
+    setTimeout(async () => {
       try {
         if (!config) throw new Error("시험 설정이 로드되지 않았습니다.");
 
@@ -226,8 +226,11 @@ const UserExam: React.FC<UserExamProps> = ({ examId, user, onComplete, onCancel 
           lastYearSecondSemesterGrade: lastYearSecondSemesterGrade === '' ? undefined : (lastYearSecondSemesterGrade === 'UNKNOWN' ? 'UNKNOWN' : Number(lastYearSecondSemesterGrade))
         };
 
-        // Save to LocalStorage
-        saveUserScore(record);
+        // Save to LocalStorage and Supabase
+        const success = await saveUserScore(record);
+        if (!success) {
+          throw new Error('성적 저장에 실패했습니다.');
+        }
         
         // Navigate to results
         onComplete(record.id);

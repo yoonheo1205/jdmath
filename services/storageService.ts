@@ -72,50 +72,97 @@ export const getExamByIdFromSupabase = async (id: string): Promise<ExamConfig | 
 };
 
 export const saveExamToSupabase = async (exam: ExamConfig): Promise<boolean> => {
+  console.log('[saveExamToSupabase] Starting save exam...', { examId: exam.id, title: exam.title });
+  
   // Always save to localStorage first (as backup)
-  saveExam(exam);
+  const exams = getExams();
+  const index = exams.findIndex(e => e.id === exam.id);
+  if (index >= 0) {
+    exams[index] = exam;
+  } else {
+    exams.push(exam);
+  }
+  localStorage.setItem(KEY_EXAMS, JSON.stringify(exams));
+  console.log('[saveExamToSupabase] Saved to localStorage');
   
   if (!isSupabaseConfigured()) {
+    console.log('[saveExamToSupabase] Supabase not configured, using localStorage only');
     return true;
   }
   
   try {
-    const { error } = await supabase
-      .from('exams')
-      .upsert({
-        id: exam.id,
-        title: exam.title,
-        config: exam,
-        created_at: new Date(exam.createdAt).toISOString(),
-      });
+    const payload = {
+      id: exam.id,
+      title: exam.title,
+      config: exam,
+      created_at: new Date(exam.createdAt).toISOString(),
+    };
+    console.log('[saveExamToSupabase] Upserting to Supabase...', payload);
     
-    if (error) throw error;
+    const { data, error } = await supabase
+      .from('exams')
+      .upsert(payload);
+    
+    if (error) {
+      console.error('[saveExamToSupabase] Supabase error:', error);
+      throw new Error(`Failed to save exam to Supabase: ${error.message}`);
+    }
+    
+    console.log('[saveExamToSupabase] Successfully saved to Supabase', data);
     return true;
-  } catch (error) {
-    console.error('Error saving exam to Supabase:', error);
-    return true; // Still return true since localStorage succeeded
+  } catch (error: any) {
+    console.error('[saveExamToSupabase] Error saving exam to Supabase:', error);
+    // Still return true since localStorage succeeded, but log the error
+    alert(`경고: Supabase 저장 실패 - ${error.message}. 로컬 저장소에는 저장되었습니다.`);
+    return true;
   }
 };
 
 export const deleteExamFromSupabase = async (id: string): Promise<boolean> => {
+  console.log('[deleteExamFromSupabase] Starting delete exam...', { examId: id });
+  
   // Delete from localStorage first
-  deleteExam(id);
+  const exams = getExams();
+  const newExams = exams.filter(e => e.id !== id);
+  localStorage.setItem(KEY_EXAMS, JSON.stringify(newExams));
+  
+  // Also cleanup scores for this exam
+  const scores = getAllScores();
+  const newScores = scores.filter(s => s.examId !== id);
+  localStorage.setItem(KEY_SCORES, JSON.stringify(newScores));
+  console.log('[deleteExamFromSupabase] Deleted from localStorage');
   
   if (!isSupabaseConfigured()) {
+    console.log('[deleteExamFromSupabase] Supabase not configured, using localStorage only');
     return true;
   }
   
   try {
     // Delete related scores first
-    await supabase.from('scores').delete().eq('exam_id', id);
+    console.log('[deleteExamFromSupabase] Deleting related scores...');
+    const { error: scoresError } = await supabase.from('scores').delete().eq('exam_id', id);
+    
+    if (scoresError) {
+      console.error('[deleteExamFromSupabase] Error deleting scores:', scoresError);
+      // Continue anyway to try deleting the exam
+    } else {
+      console.log('[deleteExamFromSupabase] Scores deleted successfully');
+    }
     
     // Delete the exam
+    console.log('[deleteExamFromSupabase] Deleting exam...');
     const { error } = await supabase.from('exams').delete().eq('id', id);
     
-    if (error) throw error;
+    if (error) {
+      console.error('[deleteExamFromSupabase] Supabase error:', error);
+      throw new Error(`Failed to delete exam from Supabase: ${error.message}`);
+    }
+    
+    console.log('[deleteExamFromSupabase] Successfully deleted from Supabase');
     return true;
-  } catch (error) {
-    console.error('Error deleting exam from Supabase:', error);
+  } catch (error: any) {
+    console.error('[deleteExamFromSupabase] Error deleting exam from Supabase:', error);
+    alert(`경고: Supabase 삭제 실패 - ${error.message}. 로컬 저장소에서는 삭제되었습니다.`);
     return true;
   }
 };
@@ -154,29 +201,49 @@ export const getScoresByExamIdFromSupabase = async (examId: string): Promise<Use
 };
 
 export const saveUserScoreToSupabase = async (score: UserScore): Promise<boolean> => {
+  console.log('[saveUserScoreToSupabase] Starting save score...', { scoreId: score.id, examId: score.examId });
+  
   // Always save to localStorage first
-  saveUserScore(score);
+  const scores = getAllScores();
+  const index = scores.findIndex(s => s.id === score.id);
+  if (index >= 0) {
+    scores[index] = score;
+  } else {
+    scores.push(score);
+  }
+  localStorage.setItem(KEY_SCORES, JSON.stringify(scores));
+  console.log('[saveUserScoreToSupabase] Saved to localStorage');
   
   if (!isSupabaseConfigured()) {
+    console.log('[saveUserScoreToSupabase] Supabase not configured, using localStorage only');
     return true;
   }
   
   try {
-    const { error } = await supabase
-      .from('scores')
-      .upsert({
-        id: score.id,
-        exam_id: score.examId,
-        user_id: score.userId || null,
-        total_score: score.totalScore,
-        detail: score,
-        created_at: new Date(score.timestamp).toISOString(),
-      });
+    const payload = {
+      id: score.id,
+      exam_id: score.examId,
+      user_id: score.userId || null,
+      total_score: score.totalScore,
+      detail: score,
+      created_at: new Date(score.timestamp).toISOString(),
+    };
     
-    if (error) throw error;
+    console.log('[saveUserScoreToSupabase] Upserting to Supabase...', payload);
+    const { data, error } = await supabase
+      .from('scores')
+      .upsert(payload);
+    
+    if (error) {
+      console.error('[saveUserScoreToSupabase] Supabase error:', error);
+      throw new Error(`Failed to save score to Supabase: ${error.message}`);
+    }
+    
+    console.log('[saveUserScoreToSupabase] Successfully saved to Supabase', data);
     return true;
-  } catch (error) {
-    console.error('Error saving score to Supabase:', error);
+  } catch (error: any) {
+    console.error('[saveUserScoreToSupabase] Error saving score to Supabase:', error);
+    alert(`경고: Supabase 저장 실패 - ${error.message}. 로컬 저장소에는 저장되었습니다.`);
     return true;
   }
 };
@@ -210,7 +277,10 @@ export interface SignUpData {
 }
 
 export const signUpWithSupabase = async (userData: SignUpData): Promise<{ success: boolean; error?: string; userId?: string }> => {
+  console.log('[signUpWithSupabase] Starting signup...', { email: userData.email, username: userData.username });
+  
   if (!isSupabaseConfigured()) {
+    console.log('[signUpWithSupabase] Supabase not configured, using localStorage');
     // Fallback to localStorage registration
     const success = registerUser({
       username: userData.username,
@@ -225,6 +295,7 @@ export const signUpWithSupabase = async (userData: SignUpData): Promise<{ succes
   
   try {
     // 1. Sign up with Supabase Auth
+    console.log('[signUpWithSupabase] Calling supabase.auth.signUp...');
     const { data: authData, error: authError } = await supabase.auth.signUp({
       email: userData.email,
       password: userData.password,
@@ -240,7 +311,8 @@ export const signUpWithSupabase = async (userData: SignUpData): Promise<{ succes
     });
 
     if (authError) {
-      console.error('Supabase auth error:', authError);
+      console.error('[signUpWithSupabase] Supabase auth error:', authError);
+      const errorMsg = `인증 오류: ${authError.message}`;
       // Fallback to localStorage
       const success = registerUser({
         username: userData.username,
@@ -250,45 +322,69 @@ export const signUpWithSupabase = async (userData: SignUpData): Promise<{ succes
         email: userData.email,
         grade: userData.grade,
       });
-      return { success, error: success ? undefined : '회원가입에 실패했습니다.' };
+      return { success, error: success ? errorMsg : '회원가입에 실패했습니다.' };
     }
 
-    if (authData.user) {
-      // 2. Insert into profiles table with password
-      const { error: profileError } = await supabase
-        .from('profiles')
-        .insert({
-          id: authData.user.id,
-          email: userData.email,
-          username: userData.username,
-          student_number: userData.studentNumber,
-          name: userData.name,
-          grade: userData.grade,
-          role: 'STUDENT',
-          password: userData.password, // Store raw password as requested
-        });
+    if (!authData || !authData.user) {
+      console.error('[signUpWithSupabase] No user data returned from auth.signUp');
+      return { success: false, error: '회원가입에 실패했습니다. 사용자 데이터를 받을 수 없습니다.' };
+    }
 
-      if (profileError) {
-        console.error('Profile creation error:', profileError);
+    console.log('[signUpWithSupabase] Auth signup successful, user ID:', authData.user.id);
+
+    // 2. Insert into profiles table with password
+    const profilePayload = {
+      id: authData.user.id,
+      email: userData.email,
+      username: userData.username,
+      student_number: userData.studentNumber,
+      name: userData.name,
+      grade: userData.grade,
+      role: 'STUDENT',
+      password: userData.password, // Store raw password as requested
+    };
+    
+    console.log('[signUpWithSupabase] Inserting into profiles table...', profilePayload);
+    const { data: profileData, error: profileError } = await supabase
+      .from('profiles')
+      .insert(profilePayload)
+      .select()
+      .single();
+
+    if (profileError) {
+      console.error('[signUpWithSupabase] Profile creation error:', profileError);
+      const errorMsg = `프로필 생성 오류: ${profileError.message}`;
+      // Try to delete the auth user if profile creation fails
+      try {
+        await supabase.auth.admin.deleteUser(authData.user.id);
+      } catch (deleteError) {
+        console.error('[signUpWithSupabase] Failed to clean up auth user:', deleteError);
       }
-
-      // Also save to localStorage for compatibility
-      registerUser({
-        username: userData.username,
-        password: userData.password,
-        name: userData.name,
-        studentNumber: userData.studentNumber,
-        email: userData.email,
-        grade: userData.grade,
-        supabaseUserId: authData.user.id,
-      });
-
-      return { success: true, userId: authData.user.id };
+      return { success: false, error: errorMsg };
     }
 
-    return { success: false, error: '회원가입에 실패했습니다.' };
+    if (!profileData) {
+      console.error('[signUpWithSupabase] No profile data returned from insert');
+      return { success: false, error: '프로필 생성에 실패했습니다.' };
+    }
+
+    console.log('[signUpWithSupabase] Profile created successfully:', profileData);
+
+    // Also save to localStorage for compatibility
+    registerUser({
+      username: userData.username,
+      password: userData.password,
+      name: userData.name,
+      studentNumber: userData.studentNumber,
+      email: userData.email,
+      grade: userData.grade,
+      supabaseUserId: authData.user.id,
+    });
+
+    console.log('[signUpWithSupabase] Signup completed successfully');
+    return { success: true, userId: authData.user.id };
   } catch (error: any) {
-    console.error('Sign up error:', error);
+    console.error('[signUpWithSupabase] Unexpected error:', error);
     // Fallback to localStorage
     const success = registerUser({
       username: userData.username,
@@ -298,7 +394,7 @@ export const signUpWithSupabase = async (userData: SignUpData): Promise<{ succes
       email: userData.email,
       grade: userData.grade,
     });
-    return { success, error: success ? undefined : error.message };
+    return { success, error: success ? undefined : (error.message || '회원가입 중 오류가 발생했습니다.') };
   }
 };
 
@@ -463,32 +559,46 @@ export const getUsersFromSupabase = async (): Promise<RegisteredUser[]> => {
 
 // Update user in Supabase
 export const updateUserInSupabase = async (userId: string, updates: Partial<RegisteredUser>): Promise<boolean> => {
+  console.log('[updateUserInSupabase] Starting update user...', { userId, updates });
+  
   // Update localStorage first
   if (updates.username) {
     updateUser(updates.username, updates);
   }
+  console.log('[updateUserInSupabase] Updated localStorage');
   
   if (!isSupabaseConfigured()) {
+    console.log('[updateUserInSupabase] Supabase not configured, using localStorage only');
     return true;
   }
   
   try {
-    const { error } = await supabase
-      .from('profiles')
-      .update({
-        name: updates.name,
-        student_number: updates.studentNumber,
-        grade: updates.grade,
-        email: updates.email,
-        username: updates.username,
-        password: updates.password,
-      })
-      .eq('id', userId);
+    const payload = {
+      name: updates.name,
+      student_number: updates.studentNumber,
+      grade: updates.grade,
+      email: updates.email,
+      username: updates.username,
+      password: updates.password,
+    };
     
-    if (error) throw error;
+    console.log('[updateUserInSupabase] Updating in Supabase...', payload);
+    const { data, error } = await supabase
+      .from('profiles')
+      .update(payload)
+      .eq('id', userId)
+      .select();
+    
+    if (error) {
+      console.error('[updateUserInSupabase] Supabase error:', error);
+      throw new Error(`Failed to update user in Supabase: ${error.message}`);
+    }
+    
+    console.log('[updateUserInSupabase] Successfully updated in Supabase', data);
     return true;
-  } catch (error) {
-    console.error('Error updating user in Supabase:', error);
+  } catch (error: any) {
+    console.error('[updateUserInSupabase] Error updating user in Supabase:', error);
+    alert(`경고: Supabase 업데이트 실패 - ${error.message}. 로컬 저장소에는 업데이트되었습니다.`);
     return true;
   }
 };
@@ -543,7 +653,14 @@ export const getExamById = (id: string): ExamConfig | undefined => {
   return exams.find(e => e.id === id);
 };
 
-export const saveExam = (exam: ExamConfig) => {
+export const saveExam = async (exam: ExamConfig): Promise<boolean> => {
+  console.log('[saveExam] Called with exam:', exam.id);
+  // Call Supabase version if configured, otherwise use localStorage
+  if (isSupabaseConfigured()) {
+    return await saveExamToSupabase(exam);
+  }
+  
+  // Fallback to localStorage only
   const exams = getExams();
   const index = exams.findIndex(e => e.id === exam.id);
   
@@ -554,6 +671,8 @@ export const saveExam = (exam: ExamConfig) => {
   }
   
   localStorage.setItem(KEY_EXAMS, JSON.stringify(exams));
+  console.log('[saveExam] Saved to localStorage only');
+  return true;
 };
 
 export const completeExam = (examId: string) => {
@@ -602,9 +721,15 @@ export const getScoresByExamId = (examId: string): UserScore[] => {
   return scores.filter(s => s.examId === examId);
 };
 
-export const saveUserScore = (score: UserScore) => {
+export const saveUserScore = async (score: UserScore): Promise<boolean> => {
+  console.log('[saveUserScore] Called with score:', score.id);
+  // Call Supabase version if configured, otherwise use localStorage
+  if (isSupabaseConfigured()) {
+    return await saveUserScoreToSupabase(score);
+  }
+  
+  // Fallback to localStorage only
   const scores = getAllScores();
-  // Update if exists (though usually new) or push
   const index = scores.findIndex(s => s.id === score.id);
   if (index >= 0) {
     scores[index] = score;
@@ -612,6 +737,8 @@ export const saveUserScore = (score: UserScore) => {
     scores.push(score);
   }
   localStorage.setItem(KEY_SCORES, JSON.stringify(scores));
+  console.log('[saveUserScore] Saved to localStorage only');
+  return true;
 };
 
 export const getUserScoreByExamId = (examId: string, userId: string): UserScore | undefined => {

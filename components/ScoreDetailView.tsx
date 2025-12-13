@@ -15,7 +15,7 @@ const ScoreDetailView: React.FC<ScoreDetailViewProps> = ({ score, config, onBack
   const [mcqAnswers, setMcqAnswers] = useState<Record<number, number>>(score.mcqAnswers || {});
   const [subjectiveScores, setSubjectiveScores] = useState<Record<number, number>>(score.subjectiveScores || {});
 
-  const handleSave = () => {
+  const handleSave = async () => {
     // 점수 재계산
     let newMcqScore = 0;
     config.mcqs.forEach((q, idx) => {
@@ -40,9 +40,18 @@ const ScoreDetailView: React.FC<ScoreDetailViewProps> = ({ score, config, onBack
       subjectiveScores
     };
 
-    saveUserScore(updated);
-    onUpdate(updated);
-    alert('수정이 저장되었습니다.');
+    try {
+      const success = await saveUserScore(updated);
+      if (success) {
+        onUpdate(updated);
+        alert('수정이 저장되었습니다.');
+      } else {
+        alert('저장에 실패했습니다.');
+      }
+    } catch (error: any) {
+      console.error('Error saving score:', error);
+      alert(`저장 중 오류가 발생했습니다: ${error.message || '알 수 없는 오류'}`);
+    }
   };
 
   return (
