@@ -440,6 +440,12 @@ export const loginWithSupabase = async (emailOrUsername: string, password: strin
 
         const profileData = profileDataRaw as ProfileRow | null;
         await recordUserLoginIp(profileData?.username || authData.user.email || emailOrUsername);
+        console.log('[loginWithSupabase] Email login successful:', {
+          email: authData.user.email,
+          username: profileData?.username,
+          grade: profileData?.grade,
+          gradeType: typeof profileData?.grade
+        });
 
         return {
           success: true,
@@ -448,7 +454,9 @@ export const loginWithSupabase = async (emailOrUsername: string, password: strin
             name: profileData?.name || authData.user.email?.split('@')[0] || 'User',
             studentNumber: profileData?.student_number || '',
             username: profileData?.username || authData.user.email || emailOrUsername,
-            grade: profileData?.grade as 1 | 2 | 3 | undefined,
+            grade: profileData?.grade !== null && profileData?.grade !== undefined 
+              ? (Number(profileData.grade) as 1 | 2 | 3) 
+              : undefined,
             email: authData.user.email || '',
             userId: authData.user.id,
           }
@@ -471,6 +479,11 @@ export const loginWithSupabase = async (emailOrUsername: string, password: strin
       // Check if we got a result and no error (or a specific "no rows" error which is fine)
       if (profileByUsername && (!usernameError || usernameError.code === 'PGRST116')) {
         await recordUserLoginIp(profileByUsername.username || emailOrUsername);
+        console.log('[loginWithSupabase] Username login successful:', {
+          username: profileByUsername.username,
+          grade: profileByUsername.grade,
+          gradeType: typeof profileByUsername.grade
+        });
         return {
           success: true,
           session: {
@@ -478,7 +491,9 @@ export const loginWithSupabase = async (emailOrUsername: string, password: strin
             name: profileByUsername.name || 'User',
             studentNumber: profileByUsername.student_number || '',
             username: profileByUsername.username || emailOrUsername,
-            grade: profileByUsername.grade as 1 | 2 | 3 | undefined,
+            grade: profileByUsername.grade !== null && profileByUsername.grade !== undefined 
+              ? (Number(profileByUsername.grade) as 1 | 2 | 3) 
+              : undefined,
             email: profileByUsername.email || '',
             userId: profileByUsername.id,
           }
@@ -490,6 +505,11 @@ export const loginWithSupabase = async (emailOrUsername: string, password: strin
     const user = authenticateUser(emailOrUsername, password);
     if (user) {
       await recordUserLoginIp(emailOrUsername);
+      console.log('[loginWithSupabase] localStorage fallback login successful:', {
+        username: user.username,
+        grade: user.grade,
+        gradeType: typeof user.grade
+      });
       return {
         success: true,
         session: {
@@ -497,7 +517,9 @@ export const loginWithSupabase = async (emailOrUsername: string, password: strin
           name: user.name,
           studentNumber: user.studentNumber,
           username: user.username,
-          grade: user.grade,
+          grade: user.grade !== null && user.grade !== undefined 
+            ? (Number(user.grade) as 1 | 2 | 3) 
+            : undefined,
           email: user.email,
           userId: user.supabaseUserId || user.username,
         }
@@ -511,6 +533,11 @@ export const loginWithSupabase = async (emailOrUsername: string, password: strin
     const user = authenticateUser(emailOrUsername, password);
     if (user) {
       await recordUserLoginIp(emailOrUsername);
+      console.log('[loginWithSupabase] localStorage error fallback login successful:', {
+        username: user.username,
+        grade: user.grade,
+        gradeType: typeof user.grade
+      });
       return {
         success: true,
         session: {
@@ -518,7 +545,9 @@ export const loginWithSupabase = async (emailOrUsername: string, password: strin
           name: user.name,
           studentNumber: user.studentNumber,
           username: user.username,
-          grade: user.grade,
+          grade: user.grade !== null && user.grade !== undefined 
+            ? (Number(user.grade) as 1 | 2 | 3) 
+            : undefined,
           email: user.email,
           userId: user.supabaseUserId || user.username,
         }

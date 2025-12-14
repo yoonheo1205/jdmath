@@ -40,18 +40,36 @@ const UserExam: React.FC<UserExamProps> = ({ examId, user, onComplete, onCancel 
     setConfig(loadedConfig);
     
     // 학년 검증
-    if (loadedConfig && user.grade && loadedConfig.grade) {
-      // 타입을 명시적으로 숫자로 변환하여 비교
+    if (loadedConfig && loadedConfig.grade) {
       const examGrade = Number(loadedConfig.grade);
-      const userGrade = Number(user.grade);
       
-      // 학년이 다를 때만 경고 (같으면 통과)
-      if (examGrade !== userGrade && !isNaN(examGrade) && !isNaN(userGrade)) {
-        alert(`이 시험은 ${examGrade}학년용입니다. ${userGrade}학년 학생은 응시할 수 없습니다.`);
-        setTimeout(() => {
-          onCancel();
-        }, 100);
-        return;
+      // 사용자 학년 정보 확인 및 디버깅
+      console.log('[UserExam] Grade validation check:', { 
+        examGrade, 
+        userGradeRaw: user.grade, 
+        userGradeType: typeof user.grade,
+        user: { username: user.username, grade: user.grade }
+      });
+      
+      if (user.grade !== undefined && user.grade !== null) {
+        const userGrade = Number(user.grade);
+        
+        // 학년이 다를 때만 경고 (같으면 통과)
+        if (!isNaN(examGrade) && !isNaN(userGrade)) {
+          if (examGrade !== userGrade) {
+            console.log('[UserExam] Grade validation failed:', { examGrade, userGrade, userGradeRaw: user.grade, user });
+            alert(`이 시험은 ${examGrade}학년용입니다. ${userGrade}학년 학생은 응시할 수 없습니다.`);
+            setTimeout(() => {
+              onCancel();
+            }, 100);
+            return;
+          } else {
+            console.log('[UserExam] Grade validation passed:', { examGrade, userGrade });
+          }
+        }
+      } else {
+        // 사용자 학년 정보가 없는 경우 경고
+        console.warn('[UserExam] User grade is missing, allowing access:', { user });
       }
     }
     

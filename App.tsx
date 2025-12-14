@@ -356,29 +356,47 @@ const App: React.FC = () => {
     if (view === 'EXAM' && selectedExamId) {
       // 학년 검증
       const exam = examList.find(e => e.id === selectedExamId);
-      if (exam && exam.grade && session.grade) {
-        // 타입을 명시적으로 숫자로 변환하여 비교
+      if (exam && exam.grade) {
         const examGrade = Number(exam.grade);
-        const sessionGrade = Number(session.grade);
         
-        // 학년이 다를 때만 경고 (같으면 통과)
-        if (examGrade !== sessionGrade && !isNaN(examGrade) && !isNaN(sessionGrade)) {
-          return (
-            <div className="max-w-4xl mx-auto p-6">
-              <div className="text-center py-12 bg-white rounded-xl shadow-sm border border-red-200">
-                <h2 className="text-2xl font-bold text-red-600 mb-4">시험 응시 불가</h2>
-                <p className="text-slate-600 mb-4">
-                  이 시험은 {examGrade}학년용입니다. {sessionGrade}학년 학생은 응시할 수 없습니다.
-                </p>
-                <button 
-                  onClick={() => setView('HOME')}
-                  className="px-6 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors"
-                >
-                  돌아가기
-                </button>
-              </div>
-            </div>
-          );
+        // 사용자 학년 정보 확인 및 디버깅
+        console.log('[App] Grade validation check:', { 
+          examGrade, 
+          sessionGradeRaw: session.grade, 
+          sessionGradeType: typeof session.grade,
+          session: { username: session.username, grade: session.grade }
+        });
+        
+        if (session.grade !== undefined && session.grade !== null) {
+          const sessionGrade = Number(session.grade);
+          
+          // 학년이 다를 때만 경고 (같으면 통과)
+          if (!isNaN(examGrade) && !isNaN(sessionGrade)) {
+            if (examGrade !== sessionGrade) {
+              console.log('[App] Grade validation failed:', { examGrade, sessionGrade, sessionGradeRaw: session.grade, session });
+              return (
+                <div className="max-w-4xl mx-auto p-6">
+                  <div className="text-center py-12 bg-white rounded-xl shadow-sm border border-red-200">
+                    <h2 className="text-2xl font-bold text-red-600 mb-4">시험 응시 불가</h2>
+                    <p className="text-slate-600 mb-4">
+                      이 시험은 {examGrade}학년용입니다. {sessionGrade}학년 학생은 응시할 수 없습니다.
+                    </p>
+                    <button 
+                      onClick={() => setView('HOME')}
+                      className="px-6 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors"
+                    >
+                      돌아가기
+                    </button>
+                  </div>
+                </div>
+              );
+            } else {
+              console.log('[App] Grade validation passed:', { examGrade, sessionGrade });
+            }
+          }
+        } else {
+          // 사용자 학년 정보가 없는 경우 경고
+          console.warn('[App] Session grade is missing, allowing access:', { session });
         }
       }
       
