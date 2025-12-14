@@ -457,31 +457,33 @@ export const loginWithSupabase = async (emailOrUsername: string, password: strin
       // If email login failed, continue to username login below
     }
 
-    // Try username login by checking profiles table (use .maybeSingle() instead of .single() to avoid errors)
-    const { data: profileByUsernameRaw, error: usernameError } = await supabase
-      .from('profiles')
-      .select('*')
-      .eq('username', emailOrUsername)
-      .eq('password', password)
-      .maybeSingle();
+    // Try username login by checking profiles table (only if not email)
+    if (!isEmail) {
+      const { data: profileByUsernameRaw, error: usernameError } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('username', emailOrUsername)
+        .eq('password', password)
+        .maybeSingle();
 
-    const profileByUsername = profileByUsernameRaw as ProfileRow | null;
-    
-    // Check if we got a result and no error (or a specific "no rows" error which is fine)
-    if (profileByUsername && (!usernameError || usernameError.code === 'PGRST116')) {
-      await recordUserLoginIp(profileByUsername.username || emailOrUsername);
-      return {
-        success: true,
-        session: {
-          role: 'STUDENT',
-          name: profileByUsername.name || 'User',
-          studentNumber: profileByUsername.student_number || '',
-          username: profileByUsername.username || emailOrUsername,
-          grade: profileByUsername.grade as 1 | 2 | 3 | undefined,
-          email: profileByUsername.email || '',
-          userId: profileByUsername.id,
-        }
-      };
+      const profileByUsername = profileByUsernameRaw as ProfileRow | null;
+      
+      // Check if we got a result and no error (or a specific "no rows" error which is fine)
+      if (profileByUsername && (!usernameError || usernameError.code === 'PGRST116')) {
+        await recordUserLoginIp(profileByUsername.username || emailOrUsername);
+        return {
+          success: true,
+          session: {
+            role: 'STUDENT',
+            name: profileByUsername.name || 'User',
+            studentNumber: profileByUsername.student_number || '',
+            username: profileByUsername.username || emailOrUsername,
+            grade: profileByUsername.grade as 1 | 2 | 3 | undefined,
+            email: profileByUsername.email || '',
+            userId: profileByUsername.id,
+          }
+        };
+      }
     }
 
     // Fallback to localStorage

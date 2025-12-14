@@ -39,13 +39,14 @@ const UserExam: React.FC<UserExamProps> = ({ examId, user, onComplete, onCancel 
     const loadedConfig = getExamById(examId);
     setConfig(loadedConfig);
     
-    // 학년 검증 (타입 안전성 확보)
+    // 학년 검증
     if (loadedConfig && user.grade && loadedConfig.grade) {
       // 타입을 명시적으로 숫자로 변환하여 비교
       const examGrade = Number(loadedConfig.grade);
       const userGrade = Number(user.grade);
       
-      if (examGrade !== userGrade) {
+      // 학년이 다를 때만 경고 (같으면 통과)
+      if (examGrade !== userGrade && !isNaN(examGrade) && !isNaN(userGrade)) {
         alert(`이 시험은 ${examGrade}학년용입니다. ${userGrade}학년 학생은 응시할 수 없습니다.`);
         setTimeout(() => {
           onCancel();

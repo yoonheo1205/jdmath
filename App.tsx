@@ -354,14 +354,15 @@ const App: React.FC = () => {
     }
 
     if (view === 'EXAM' && selectedExamId) {
-      // 학년 검증 (타입 안전성 확보)
+      // 학년 검증
       const exam = examList.find(e => e.id === selectedExamId);
       if (exam && exam.grade && session.grade) {
         // 타입을 명시적으로 숫자로 변환하여 비교
         const examGrade = Number(exam.grade);
         const sessionGrade = Number(session.grade);
         
-        if (examGrade !== sessionGrade) {
+        // 학년이 다를 때만 경고 (같으면 통과)
+        if (examGrade !== sessionGrade && !isNaN(examGrade) && !isNaN(sessionGrade)) {
           return (
             <div className="max-w-4xl mx-auto p-6">
               <div className="text-center py-12 bg-white rounded-xl shadow-sm border border-red-200">
