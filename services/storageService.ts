@@ -469,8 +469,6 @@ export const loginWithSupabase = async (emailOrUsername: string, password: strin
     
     // Check if we got a result and no error (or a specific "no rows" error which is fine)
     if (profileByUsername && (!usernameError || usernameError.code === 'PGRST116')) {
-
-    if (profileByUsername) {
       await recordUserLoginIp(profileByUsername.username || emailOrUsername);
       return {
         success: true,

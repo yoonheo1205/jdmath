@@ -38,13 +38,8 @@ const ProfileEdit: React.FC<ProfileEditProps> = ({ session, onUpdate, onCancel }
     try {
       // Supabase 사용자 업데이트
       if (session.userId && isSupabaseConfigured()) {
-        const updateData: any = {
-          username: username.trim()
-        };
-
-        // 비밀번호 변경
+        // 비밀번호 변경 (Supabase Auth)
         if (password) {
-          // Update Supabase Auth password
           const { error: passwordError } = await supabase.auth.updateUser({
             password: password
           });
@@ -55,27 +50,18 @@ const ProfileEdit: React.FC<ProfileEditProps> = ({ session, onUpdate, onCancel }
             setIsLoading(false);
             return;
           }
-
-          // Also update password in profiles table
-          updateData.password = password;
         }
 
-        // Update profiles table
-        const { error: updateError } = await supabase
-          .from('profiles')
-          .update(updateData)
-          .eq('id', session.userId);
-
-        if (updateError) {
-          console.error('Profile update error:', updateError);
-          // Continue with localStorage update even if Supabase update fails
-        }
-
-        // Use updateUserInSupabase for proper sync
-        await updateUserInSupabase(session.userId, {
+        // Use updateUserInSupabase for proper sync (updates both profiles table and localStorage)
+        const updateSuccess = await updateUserInSupabase(session.userId, {
           username: username.trim(),
           password: password || undefined,
         });
+
+        if (!updateSuccess) {
+          console.error('Failed to update user in Supabase');
+          // Continue with localStorage update even if Supabase update fails
+        }
       }
 
       // localStorage 업데이트
