@@ -454,17 +454,21 @@ export const loginWithSupabase = async (emailOrUsername: string, password: strin
           }
         };
       }
+      // If email login failed, continue to username login below
     }
 
-    // Try username login by checking profiles table
-    const { data: profileByUsernameRaw } = await supabase
+    // Try username login by checking profiles table (use .maybeSingle() instead of .single() to avoid errors)
+    const { data: profileByUsernameRaw, error: usernameError } = await supabase
       .from('profiles')
       .select('*')
       .eq('username', emailOrUsername)
       .eq('password', password)
-      .single();
+      .maybeSingle();
 
     const profileByUsername = profileByUsernameRaw as ProfileRow | null;
+    
+    // Check if we got a result and no error (or a specific "no rows" error which is fine)
+    if (profileByUsername && (!usernameError || usernameError.code === 'PGRST116')) {
 
     if (profileByUsername) {
       await recordUserLoginIp(profileByUsername.username || emailOrUsername);

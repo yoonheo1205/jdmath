@@ -85,8 +85,8 @@ const Login: React.FC<LoginProps> = ({ onLogin, onCancel }) => {
     }
   };
 
-  // Magic Link 기반 회원가입 플로우
-  const handleSignUp = async (e: React.FormEvent) => {
+  // 새로운 OTP 기반 회원가입 플로우
+  const handleSignUpWithOtp = async (e: React.FormEvent) => {
     e.preventDefault();
 
     // 입력 검증
@@ -135,7 +135,7 @@ const Login: React.FC<LoginProps> = ({ onLogin, onCancel }) => {
       return;
     }
 
-    setIsSigningUp(true);
+    setIsSendingOtp(true);
 
     try {
       // Supabase에서 이메일 중복 체크
@@ -148,7 +148,7 @@ const Login: React.FC<LoginProps> = ({ onLogin, onCancel }) => {
         
         if (existingUsers && existingUsers.length > 0) {
           alert('이미 사용 중인 이메일입니다.');
-          setIsSigningUp(false);
+          setIsSendingOtp(false);
           return;
         }
       }
@@ -156,16 +156,17 @@ const Login: React.FC<LoginProps> = ({ onLogin, onCancel }) => {
       // 약관 동의 모달 표시
       setShowTermsModal(true);
     } catch (error: any) {
-      console.error('[handleSignUp] Error:', error);
+      console.error('[handleSignUpWithOtp] Error:', error);
       alert(`회원가입 중 오류가 발생했습니다: ${error.message || '알 수 없는 오류'}`);
-      setIsSigningUp(false);
+    } finally {
+      setIsSendingOtp(false);
     }
   };
 
-  // 약관 동의 완료 후 Magic Link 이메일 전송
+  // 약관 동의 완료 후 OTP 전송
   const handleSignUpAfterTerms = async () => {
     setShowTermsModal(false);
-    setIsSigningUp(true);
+    setIsSendingOtp(true);
 
     const emailParts = regEmail.split('@');
     const emailId = emailParts[0].toLowerCase();
@@ -181,7 +182,7 @@ const Login: React.FC<LoginProps> = ({ onLogin, onCancel }) => {
     const finalUsername = regId.trim() || regEmail.split('@')[0];
 
     try {
-      // authService.signUp()을 호출하여 Magic Link 이메일 전송
+      // authService.signUp()을 호출하여 OTP 전송
       const result = await signUp(
         regEmail.trim(),
         regPw.trim(),
@@ -203,27 +204,137 @@ const Login: React.FC<LoginProps> = ({ onLogin, onCancel }) => {
         } else {
           alert(`오류: ${errorMsg}`);
         }
-        setIsSigningUp(false);
+        setIsSendingOtp(false);
         return;
       }
 
-      // Magic Link 이메일 전송 성공
-      console.log('[handleSignUpAfterTerms] Magic Link email sent successfully');
-      alert('이메일 확인 링크가 전송되었습니다.\n\n이메일을 확인하여 링크를 클릭해주세요.\n링크를 클릭하면 자동으로 로그인됩니다.');
-      
-      // 폼 초기화
-      setRegEmail('');
-      setRegPw('');
-      setRegName('');
-      setRegStudentNumber('');
-      setRegId('');
-      setStudentMode('LOGIN');
+      // OTP 전송 성공
+      console.log('[handleSignUpAfterTerms] OTP sent successfully');
+      setIsOtpSent(true);
+      alert('인증 코드가 이메일로 전송되었습니다.\n\n이메일을 확인하여 6자리 코드를 입력해주세요.');
     } catch (error: any) {
       console.error('[handleSignUpAfterTerms] Unexpected error:', error);
       alert(`회원가입 중 오류가 발생했습니다: ${error.message || '알 수 없는 오류'}`);
     } finally {
-      setIsSigningUp(false);
+      setIsSendingOtp(false);
     }
+  };
+
+  // OTP 검증 및 자동 로그인
+  const handleVerifyOtp = async () => {
+    if (!verificationCode.trim()) {
+      alert('인증 코드를 입력해주세요.');
+      return;
+    }
+
+    if (verificationCode.trim().length !== 6) {
+      alert('6자리 인증 코드를 입력해주세요.');
+      return;
+    }
+
+    setIsVerifyingOtp(true);
+
+    try {
+      // authService.verifyOtp()를 사용하여 OTP 검증
+      const result = await verifyOtp(regEmail.trim(), verificationCode.trim());
+
+      if (result.error) {
+        console.error('[handleVerifyOtp] OTP verification error:', result.error);
+        
+        // 오류 메시지 처리
+        const errorMsg = result.error.message || '인증 코드가 올바르지 않습니다.';
+        if (errorMsg.includes('token') || errorMsg.includes('invalid') || errorMsg.includes('expired')) {
+          alert('틀린 코드입니다. 다시 확인해주세요.');
+        } else {
+          alert(`인증 실패: ${errorMsg}`);
+        }
+        setIsVerifyingOtp(false);
+        return;
+      }
+
+      // OTP 검증 성공 - 프로필 생성 및 자동 로그인
+      if (result.data?.user) {
+        console.log('[handleVerifyOtp] OTP verified successfully, creating profile...');
+
+        const emailParts = regEmail.split('@');
+        const emailId = emailParts[0].toLowerCase();
+        let detectedGrade: 1 | 2 | 3 | undefined;
+        if (emailId.startsWith('h23')) {
+          detectedGrade = 3;
+        } else if (emailId.startsWith('h24')) {
+          detectedGrade = 2;
+        } else if (emailId.startsWith('h25')) {
+          detectedGrade = 1;
+        }
+
+        const finalUsername = regId.trim() || regEmail.split('@')[0];
+
+        // 프로필 생성
+        if (isSupabaseConfigured()) {
+          const { error: profileError } = await supabase
+            .from('profiles')
+            .insert({
+              id: result.data.user.id,
+              email: regEmail.trim(),
+              username: finalUsername,
+              student_number: regStudentNumber.trim(),
+              name: regName.trim(),
+              grade: detectedGrade,
+              role: 'STUDENT',
+              password: regPw.trim(), // 평문 비밀번호 저장 (요구사항)
+            });
+
+          if (profileError) {
+            console.error('[handleVerifyOtp] Profile creation error:', profileError);
+            // 프로필 생성 실패해도 계속 진행 (이미 Supabase auth에는 등록됨)
+          }
+
+          // localStorage에도 저장 (호환성)
+          registerUser({
+            username: finalUsername,
+      password: regPw.trim(),
+      name: regName.trim(),
+      studentNumber: regStudentNumber.trim(),
+      email: regEmail.trim(),
+            grade: detectedGrade,
+            supabaseUserId: result.data.user.id,
+          });
+
+          // 프로필 정보 가져오기
+          const { data: profileData } = await supabase
+            .from('profiles')
+            .select('*')
+            .eq('id', result.data.user.id)
+            .single();
+
+          // IP 기록
+          await recordUserLoginIp(finalUsername);
+
+          // 자동 로그인
+          onLogin({
+            role: 'STUDENT',
+            name: profileData?.name || regName.trim(),
+            studentNumber: profileData?.student_number || regStudentNumber.trim(),
+            username: profileData?.username || finalUsername,
+            grade: profileData?.grade as 1 | 2 | 3 | undefined,
+            email: result.data.user.email || regEmail.trim(),
+            userId: result.data.user.id,
+          });
+
+          alert('회원가입이 완료되었습니다!');
+        }
+      }
+    } catch (error: any) {
+      console.error('[handleVerifyOtp] Unexpected error:', error);
+      alert(`인증 중 오류가 발생했습니다: ${error.message || '알 수 없는 오류'}`);
+    } finally {
+      setIsVerifyingOtp(false);
+    }
+  };
+
+  // OTP 재전송
+  const handleResendOtp = async () => {
+    await handleSignUpAfterTerms();
   };
 
 
@@ -355,7 +466,7 @@ const Login: React.FC<LoginProps> = ({ onLogin, onCancel }) => {
               </form>
             ) : (
               // SIGN UP FORM
-              <form onSubmit={handleSignUp} className="space-y-4">
+              <form onSubmit={handleSignUpWithOtp} className="space-y-4">
                 <div className="grid grid-cols-2 gap-3">
                   <div>
                     <label className="block text-xs font-medium text-slate-700 mb-1">이름</label>
@@ -363,7 +474,8 @@ const Login: React.FC<LoginProps> = ({ onLogin, onCancel }) => {
                       type="text"
                       value={regName}
                       onChange={(e) => setRegName(e.target.value)}
-                      className={`${inputClass} pl-3`}
+                      disabled={isOtpSent}
+                      className={`${inputClass} pl-3 ${isOtpSent ? 'opacity-60' : ''}`}
                       placeholder="이름"
                       required
                     />
@@ -374,7 +486,8 @@ const Login: React.FC<LoginProps> = ({ onLogin, onCancel }) => {
                       type="text"
                       value={regStudentNumber}
                       onChange={(e) => setRegStudentNumber(e.target.value)}
-                      className={`${inputClass} pl-3`}
+                      disabled={isOtpSent}
+                      className={`${inputClass} pl-3 ${isOtpSent ? 'opacity-60' : ''}`}
                       placeholder="예: 2024001"
                       required
                     />
@@ -387,11 +500,14 @@ const Login: React.FC<LoginProps> = ({ onLogin, onCancel }) => {
                     type="text"
                     value={regId}
                     onChange={(e) => setRegId(e.target.value)}
-                    className={`${inputClass} pl-3`}
+                    disabled={isOtpSent}
+                    className={`${inputClass} pl-3 ${isOtpSent ? 'opacity-60' : ''}`}
                     placeholder="사용할 아이디 (없으면 이메일 ID 사용)"
                   />
                 </div>
 
+                {/* 비밀번호 필드 - OTP 전송 전에만 표시 */}
+                {!isOtpSent && (
                 <div>
                   <label className="block text-xs font-medium text-slate-700 mb-1">비밀번호</label>
                   <input
@@ -400,48 +516,116 @@ const Login: React.FC<LoginProps> = ({ onLogin, onCancel }) => {
                     onChange={(e) => setRegPw(e.target.value)}
                     className={`${inputClass} pl-3`}
                     placeholder="비밀번호"
-                    required
+                      required
                   />
                 </div>
+                )}
 
+                {/* 이메일 필드 */}
                 <div>
                   <label className="block text-xs font-medium text-slate-700 mb-1">학교 이메일</label>
                   <div className="relative">
-                    <Mail className="absolute left-3 top-2.5 text-slate-400" size={16} />
-                    <input
-                      type="email"
-                      value={regEmail}
-                      onChange={(e) => setRegEmail(e.target.value)}
-                      className={`${inputClass} pl-10`}
+                      <Mail className="absolute left-3 top-2.5 text-slate-400" size={16} />
+                      <input
+                        type="email"
+                        value={regEmail}
+                        onChange={(e) => setRegEmail(e.target.value)}
+                      disabled={isOtpSent}
+                      className={`${inputClass} pl-10 ${isOtpSent ? 'opacity-60' : ''}`}
                       placeholder="example@joongdong.hs.kr"
                       required
                     />
                   </div>
-                </div>
+                  </div>
+                  
+                {/* OTP 입력 필드 - OTP 전송 후에만 표시 */}
+                {isOtpSent && (
+                  <div className="pt-2 border-t border-slate-200">
+                    <label className="block text-xs font-medium text-slate-700 mb-1">인증 코드 (6자리)</label>
+                    <div className="space-y-2">
+                      <input
+                        type="text"
+                        value={verificationCode}
+                        onChange={(e) => {
+                          const value = e.target.value.replace(/\D/g, '').slice(0, 6);
+                          setVerificationCode(value);
+                        }}
+                        className={`${inputClass} pl-3 text-center text-lg tracking-widest font-mono`}
+                        placeholder="000000"
+                        maxLength={6}
+                        autoFocus
+                      />
+                      <div className="flex gap-2">
+                        <button
+                          type="button"
+                          onClick={handleVerifyOtp}
+                          disabled={isVerifyingOtp || verificationCode.trim().length !== 6}
+                          className="flex-1 px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                        >
+                          {isVerifyingOtp ? (
+                            <>
+                              <Loader2 size={16} className="animate-spin" />
+                              확인 중...
+                            </>
+                          ) : (
+                            <>
+                              <CheckCircle size={16} />
+                              코드 확인
+                            </>
+                          )}
+                        </button>
+                      <button 
+                        type="button"
+                          onClick={handleResendOtp}
+                          disabled={isSendingOtp}
+                          className="px-4 py-2 bg-slate-200 text-slate-700 rounded-lg text-sm font-medium hover:bg-slate-300 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                        >
+                          {isSendingOtp ? (
+                            <>
+                              <Loader2 size={16} className="animate-spin" />
+                              재전송 중...
+                            </>
+                          ) : (
+                            '코드 재전송'
+                          )}
+                      </button>
+                      </div>
+                      <p className="text-xs text-slate-500 text-center">
+                        이메일로 전송된 6자리 코드를 입력해주세요.
+                      </p>
+                    </div>
+                    </div>
+                  )}
 
                 <div className="pt-4">
-                  <button
-                    type="submit"
-                    disabled={isSigningUp}
-                    className="w-full bg-slate-900 hover:bg-slate-800 text-white font-bold py-3 rounded-lg transition-colors shadow-md flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    {isSigningUp ? (
-                      <>
-                        <Loader2 size={18} className="animate-spin" />
-                        처리 중...
-                      </>
-                    ) : (
-                      <>
-                        <CheckCircle size={18} />
-                        가입하기
-                      </>
-                    )}
+                  {!isOtpSent ? (
+                    <button
+                      type="submit"
+                      disabled={isSendingOtp}
+                      className="w-full bg-slate-900 hover:bg-slate-800 text-white font-bold py-3 rounded-lg transition-colors shadow-md flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      {isSendingOtp ? (
+                        <>
+                          <Loader2 size={18} className="animate-spin" />
+                          처리 중...
+                        </>
+                      ) : (
+                        <>
+                          <CheckCircle size={18} />
+                          가입하기
+                        </>
+                      )}
                   </button>
+                  ) : null}
                   <p className="text-center text-sm text-slate-500 mt-4">
                     이미 계정이 있으신가요? 
                     <button 
                       type="button" 
-                      onClick={() => setStudentMode('LOGIN')}
+                      onClick={() => {
+                        setStudentMode('LOGIN');
+                        setIsOtpSent(false);
+                        setVerificationCode('');
+                      }}
                       className="ml-2 text-indigo-600 font-semibold hover:underline"
                     >
                       로그인하기

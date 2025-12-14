@@ -6,8 +6,8 @@ import ResultStats from './components/ResultStats';
 import Login from './components/Login';
 import ProfileEdit from './components/ProfileEdit';
 import { UserSession, ExamConfig } from './types';
-import { getExams, getActiveExams, getCompletedExams, hasUserTakenExam, getScoresByExamId, initializeTestAccount, syncSupabaseToLocal, registerUser, recordUserLoginIp } from './services/storageService';
-import { supabase, isSupabaseConfigured } from './services/supabaseClient';
+import { getExams, getActiveExams, getCompletedExams, hasUserTakenExam, getScoresByExamId, initializeTestAccount, syncSupabaseToLocal } from './services/storageService';
+import { isSupabaseConfigured } from './services/supabaseClient';
 import { calculateCutoffs, CSAT_TIERS, RELATIVE_5_TIERS } from './services/mathService';
 import { LogOut, FileText, BarChart2, Instagram, ChevronDown, Github } from 'lucide-react';
 
@@ -24,30 +24,11 @@ const App: React.FC = () => {
   const [cutoffYear, setCutoffYear] = useState<number | 'ALL'>(new Date().getFullYear());
   const [cutoffSemester, setCutoffSemester] = useState<1 | 2 | 'ALL'>('ALL'); // 기본값을 전체로 변경
 
-  // 1. Initialize test account and handle Supabase session
+  // 1. Restore session from localStorage on mount + Initialize test account
   useEffect(() => {
     // 테스트 계정 초기화
     initializeTestAccount();
     
-    // Step A: Check for existing Supabase session on mount
-    const initializeSession = async () => {
-      if (isSupabaseConfigured()) {
-        try {
-          const { data: { session }, error } = await supabase.auth.getSession();
-          
-          if (error) {
-            console.error('[App] Error getting session:', error);
-          } else if (session?.user) {
-            // Session exists, fetch profile and set session
-            await handleSupabaseSession(session);
-            return;
-          }
-        } catch (error) {
-          console.error('[App] Error initializing session:', error);
-        }
-      }
-      
-      // Fallback to localStorage session
     const savedSession = localStorage.getItem('app_session');
     if (savedSession) {
       try {
@@ -61,152 +42,10 @@ const App: React.FC = () => {
       } catch (e) {
         localStorage.removeItem('app_session');
       }
-      } else {
-        setView('HOME'); // 세션이 없어도 홈 화면 표시
-      }
-    };
-
-    initializeSession();
-
-    // Step B: Set up auth state change listener for Magic Link
-    if (isSupabaseConfigured()) {
-      const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
-        console.log('[App] Auth state changed:', event, session?.user?.email);
-        
-        if (event === 'SIGNED_IN' && session?.user) {
-          // User clicked Magic Link and is now signed in
-          await handleSupabaseSession(session);
-        } else if (event === 'SIGNED_OUT') {
-          // User signed out
-          setSession(null);
-          localStorage.removeItem('app_session');
-          setView('HOME');
-        } else if (event === 'TOKEN_REFRESHED' && session?.user) {
-          // Token refreshed, update session
-          await handleSupabaseSession(session);
-        }
-      });
-
-      // Cleanup subscription on unmount
-      return () => {
-        subscription.unsubscribe();
-      };
+    } else {
+      setView('HOME'); // 세션이 없어도 홈 화면 표시
     }
   }, []);
-
-  // Helper function to handle Supabase session and create profile if needed
-  const handleSupabaseSession = async (session: any) => {
-    try {
-      const userId = session.user.id;
-      const userEmail = session.user.email;
-
-      // Fetch profile from Supabase
-      const { data: profileData, error: profileError } = await supabase
-        .from('profiles')
-        .select('*')
-        .eq('id', userId)
-        .single();
-
-      if (profileError || !profileData) {
-        // Profile doesn't exist yet - this means user just confirmed email via Magic Link
-        // We need to create the profile from the metadata stored during signUp
-        const metadata = session.user.user_metadata || {};
-        
-        console.log('[App] Creating profile from metadata:', metadata);
-        
-        // Extract metadata
-        const name = metadata.name || userEmail?.split('@')[0] || 'User';
-        const studentNumber = metadata.student_number || '';
-        const grade = metadata.grade as 1 | 2 | 3 | undefined;
-        const username = metadata.username || userEmail?.split('@')[0] || '';
-
-        // Create profile in Supabase
-        const { error: insertError } = await supabase
-          .from('profiles')
-          .insert({
-            id: userId,
-            email: userEmail || '',
-            username: username,
-            student_number: studentNumber,
-            name: name,
-            grade: grade,
-            role: 'STUDENT',
-            password: '', // Password not available in metadata for security
-          });
-
-        if (insertError) {
-          console.error('[App] Error creating profile:', insertError);
-          // Try to fetch again
-          const { data: retryProfile } = await supabase
-            .from('profiles')
-            .select('*')
-            .eq('id', userId)
-            .single();
-          
-          if (retryProfile) {
-            await setUserSessionFromProfile(retryProfile, userEmail || '');
-          } else {
-            console.error('[App] Failed to create or fetch profile');
-            return;
-          }
-        } else {
-          // Profile created successfully, also save to localStorage
-          registerUser({
-            username: username,
-            password: '', // Not stored for security
-            name: name,
-            studentNumber: studentNumber,
-            email: userEmail || '',
-            grade: grade,
-            supabaseUserId: userId,
-          });
-
-          // Record login IP
-          await recordUserLoginIp(username);
-
-          // Set session
-          const newSession: UserSession = {
-            role: 'STUDENT',
-            name: name,
-            studentNumber: studentNumber,
-            username: username,
-            grade: grade,
-            email: userEmail || '',
-            userId: userId,
-          };
-          setSession(newSession);
-          localStorage.setItem('app_session', JSON.stringify(newSession));
-          setView('HOME');
-        }
-      } else {
-        // Profile exists, set session from profile
-        await setUserSessionFromProfile(profileData, userEmail || '');
-      }
-    } catch (error) {
-      console.error('[App] Error handling Supabase session:', error);
-    }
-  };
-
-  // Helper function to set user session from profile data
-  const setUserSessionFromProfile = async (profileData: any, email: string) => {
-    const newSession: UserSession = {
-      role: 'STUDENT',
-      name: profileData.name || email.split('@')[0] || 'User',
-      studentNumber: profileData.student_number || '',
-      username: profileData.username || email.split('@')[0] || '',
-      grade: profileData.grade as 1 | 2 | 3 | undefined,
-      email: email,
-      userId: profileData.id,
-    };
-    
-    setSession(newSession);
-    localStorage.setItem('app_session', JSON.stringify(newSession));
-    
-    // Record login IP
-    await recordUserLoginIp(newSession.username);
-    
-    setView('HOME');
-  };
 
   // Refresh exam list whenever navigating to HOME or grade pages
   useEffect(() => {
@@ -270,16 +109,7 @@ const App: React.FC = () => {
     }
   };
 
-  const handleLogout = async () => {
-    // Sign out from Supabase if configured
-    if (isSupabaseConfigured()) {
-      try {
-        await supabase.auth.signOut();
-      } catch (error) {
-        console.error('[App] Error signing out from Supabase:', error);
-      }
-    }
-    
+  const handleLogout = () => {
     setSession(null);
     localStorage.removeItem('app_session'); // Clear session
     setView('HOME'); // 로그아웃 후 홈으로
@@ -524,25 +354,31 @@ const App: React.FC = () => {
     }
 
     if (view === 'EXAM' && selectedExamId) {
-      // 학년 검증
+      // 학년 검증 (타입 안전성 확보)
       const exam = examList.find(e => e.id === selectedExamId);
-      if (exam && exam.grade && session.grade && exam.grade !== session.grade) {
-        return (
-          <div className="max-w-4xl mx-auto p-6">
-            <div className="text-center py-12 bg-white rounded-xl shadow-sm border border-red-200">
-              <h2 className="text-2xl font-bold text-red-600 mb-4">시험 응시 불가</h2>
-              <p className="text-slate-600 mb-4">
-                이 시험은 {exam.grade}학년용입니다. {session.grade}학년 학생은 응시할 수 없습니다.
-              </p>
-              <button 
-                onClick={() => setView('HOME')}
-                className="px-6 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors"
-              >
-                돌아가기
-              </button>
+      if (exam && exam.grade && session.grade) {
+        // 타입을 명시적으로 숫자로 변환하여 비교
+        const examGrade = Number(exam.grade);
+        const sessionGrade = Number(session.grade);
+        
+        if (examGrade !== sessionGrade) {
+          return (
+            <div className="max-w-4xl mx-auto p-6">
+              <div className="text-center py-12 bg-white rounded-xl shadow-sm border border-red-200">
+                <h2 className="text-2xl font-bold text-red-600 mb-4">시험 응시 불가</h2>
+                <p className="text-slate-600 mb-4">
+                  이 시험은 {examGrade}학년용입니다. {sessionGrade}학년 학생은 응시할 수 없습니다.
+                </p>
+                <button 
+                  onClick={() => setView('HOME')}
+                  className="px-6 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors"
+                >
+                  돌아가기
+                </button>
+              </div>
             </div>
-          </div>
-        );
+          );
+        }
       }
       
       return (
@@ -574,7 +410,7 @@ const App: React.FC = () => {
     else if (view === 'GRADE_3' || view === 'CUTOFF_3' || view === 'PAST_3') currentGrade = 3;
     
     const filteredExams = currentGrade ? examList.filter(exam => exam.grade === currentGrade) : examList;
-    
+
     // 등급 컷 보기 페이지
     if (view === 'CUTOFF_1' || view === 'CUTOFF_2' || view === 'CUTOFF_3') {
       const allExams = getExams();
@@ -602,8 +438,8 @@ const App: React.FC = () => {
           <div className="text-center py-6 md:py-10">
             <h1 className="text-2xl md:text-3xl font-bold text-slate-800">{currentGrade}학년 등급 컷 보기</h1>
             <p className="text-sm md:text-base text-slate-500 mt-2">등급 컷을 확인할 시험을 선택하세요.</p>
-            </div>
-            
+          </div>
+          
           {/* 연도/학기 필터 */}
           <div className="bg-white p-4 md:p-6 rounded-xl shadow-sm border border-slate-200 mb-6">
             <div className="flex flex-col sm:flex-row gap-4 items-center">
