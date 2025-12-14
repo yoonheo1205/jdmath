@@ -39,7 +39,9 @@ const UserExam: React.FC<UserExamProps> = ({ examId, user, onComplete, onCancel 
     const loadedConfig = getExamById(examId);
     setConfig(loadedConfig);
     
-    // 학년 검증
+    // 학년 검증 - 한시적으로 해제
+    // TODO: 학년 검증 로직 복구 필요
+    /*
     if (loadedConfig && loadedConfig.grade) {
       const examGrade = Number(loadedConfig.grade);
       
@@ -72,6 +74,7 @@ const UserExam: React.FC<UserExamProps> = ({ examId, user, onComplete, onCancel 
         console.warn('[UserExam] User grade is missing, allowing access:', { user });
       }
     }
+    */
     
     // 시험 응시 여부 확인
     const userId = user.userId || user.username;

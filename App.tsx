@@ -354,7 +354,9 @@ const App: React.FC = () => {
     }
 
     if (view === 'EXAM' && selectedExamId) {
-      // 학년 검증
+      // 학년 검증 - 한시적으로 해제
+      // TODO: 학년 검증 로직 복구 필요
+      /*
       const exam = examList.find(e => e.id === selectedExamId);
       if (exam && exam.grade) {
         const examGrade = Number(exam.grade);
@@ -399,6 +401,7 @@ const App: React.FC = () => {
           console.warn('[App] Session grade is missing, allowing access:', { session });
         }
       }
+      */
       
       return (
         <UserExam 
